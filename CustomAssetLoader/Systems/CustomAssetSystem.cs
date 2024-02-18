@@ -19,6 +19,8 @@ namespace CustomAssetLoader.Systems
 {
     public class CustomAssetSystem : GameSystemBase
     {
+        public static readonly string MOD_PATH = Path.Combine( Application.persistentDataPath, "Mods", "CustomAssetLoader" );
+
         static FieldInfo _prefabsField = typeof( PrefabSystem ).GetField( "m_Prefabs", BindingFlags.Instance | BindingFlags.NonPublic );
 
         private PrefabSystem _prefabSystem;
@@ -42,7 +44,7 @@ namespace CustomAssetLoader.Systems
             if ( mode != GameMode.MainMenu )
                 return;
 
-            CustomAssetImporter.Import( @"C:/Users/danpe/AppData/LocalLow/Colossal Order/Cities Skylines II/Mods/CustomAssetLoader" );
+            CustomAssetImporter.Import( MOD_PATH );
 
             // This is manual code so just trying out the CO methods first to see if we can get it working ^
 
