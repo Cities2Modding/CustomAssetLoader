@@ -1,6 +1,7 @@
 ﻿using BepInEx;
 using System.Reflection;
 using System.Linq;
+using HarmonyLib;
 
 #if BEPINEX_V6
     using BepInEx.Unity.Mono;
@@ -13,7 +14,9 @@ namespace CustomAssetLoader
     {
         private void Awake( )
         {
-            new Installer( Logger ).Run( );
+            var harmony = Harmony.CreateAndPatchAll( Assembly.GetExecutingAssembly( ), MyPluginInfo.PLUGIN_GUID + "_Cities2Harmony" );
+
+            // new Installer( Logger ).Run( );
         }
     }
 }

@@ -259,7 +259,7 @@ namespace CustomAssetLoader
 
             if ( ZipFileHasChanges( zipFilePath, ASSETS_PATH ) )
             {
-                _logger.LogInfo( $"Detected changes in map ZIP '{readableString}', queuing for copy..." );
+                _logger.LogInfo( $"Detected changes in assets ZIP '{readableString}', queuing for copy..." );
                 _currentActions.Add( GenerateZipCopyTask( sourceDirectory, zipFilePath ) );
             }
         }
@@ -335,7 +335,7 @@ namespace CustomAssetLoader
                         continue;
 
                     // Extract the relative path of the file within the 'Maps' directory in the ZIP archive
-                    var targetFilePath = SanitiseZipEntryPath( Path.GetFileName( entry.FullName ), ASSETS_PATH );
+                    var targetFilePath = SanitiseZipEntryPath( Path.GetFileName( entry.FullName ), targetFolder );
 
                     // If the file does not exist in the target folder, it's considered a change
                     if ( !File.Exists( targetFilePath ) )
