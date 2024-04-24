@@ -3,82 +3,70 @@ using Colossal.AssetPipeline;
 using Colossal.IO.AssetDatabase;
 using Game.AssetPipeline;
 using Game.Prefabs;
-using Game.UI.Editor;
 using System.Collections.Generic;
-using System;
 using UnityEngine;
-using Game.Tools;
-using Unity.Entities;
 using System.IO;
+using System.Linq;
+using CustomAssetLoader.Patches;
+using System.Collections.Concurrent;
+using System;
+using CustomAssetLoader.Schemas;
+using System.Threading;
 
 namespace CustomAssetLoader.Helpers
 {
     public class CustomAssetImporter
     {
-        public static void Import( string assetSourcePath )
+        private static int _expectedCount;
+        private static int _completedCount;
+
+        public static void Import( CustomAssetCollection collection, string assetSourcePath )
         {
             var prefabFactory = new CustomPrefabFactory( );
             AssetImportPipeline.useParallelImport = true;
             AssetImportPipeline.targetDatabase = AssetDatabase.user;
             TextureImporter.overrideCompressionEffort = -1;
 
-            //var pfilesRoot = AssetImportPanel.FindProjectFilesRoot( assetSourcePath );
-            //UnityEngine.Debug.Log( pfilesRoot );
-
             if ( !AssetImportPipeline.IsArtRootPath( assetSourcePath, [Path.Combine( assetSourcePath, "ProjectFiles" )], out var artProjectPath, out var artProjectRelativePaths ) )
             {
-                UnityEngine.Debug.Log( "CAL: IsArtRootPath returned false" );
+                Debug.Log( "CAL: IsArtRootPath returned false" );
                 return;
             }
 
-            UnityEngine.Debug.Log( $"CAL: artProjectPath {artProjectPath}" );
+            _completedCount = 0;
+            _expectedCount = collection.Assets.Count;
 
-            if ( artProjectRelativePaths?.Count > 0 )
-            {
-                foreach ( var path in artProjectRelativePaths )
-                {
-                    UnityEngine.Debug.Log( $"CAL: artProjectRelativePaths {path}" );
-                }
-            }
+            AssetDatabase_UnloadAllAssets.overrideUnload = true;
             AssetImportPipeline.ImportPath( artProjectPath, artProjectRelativePaths, ImportMode.All, false, ReportProgress, prefabFactory );
-            
-            foreach ( var prefab in prefabFactory.Prefabs )
+            AssetDatabase_UnloadAllAssets.overrideUnload = false;
+        }
+
+        public static void CreatePrefab( string absolutePath, string sourcePath, IReadOnlyList<List<Colossal.AssetPipeline.LOD>> assets )
+        {
+            // For now just use the highest detail
+            var lod = assets.FirstOrDefault( )?.OrderBy( lod => lod.level ).FirstOrDefault( );
+
+            if ( lod != null )
             {
-                UnityEngine.Debug.Log( "Creating prefab: " + prefab.name );
-                AssetImportPipeline.targetDatabase.AddAsset( ( AssetDataPath ) string.Format( "{0}_{1}", prefab.name, prefab.GetType( ) ), prefab ).Save( false );
-            }
-
-            var world = World.DefaultGameObjectInjectionWorld;
-
-            PrefabSystem systemManaged1 = world.GetOrCreateSystemManaged<PrefabSystem>( );
-            ToolSystem systemManaged2 = world.GetOrCreateSystemManaged<ToolSystem>( );
-
-            foreach ( var rootPrefab in prefabFactory.rootPrefabs )
-            {
-                UnityEngine.Debug.Log( $"Root prefab: {rootPrefab.Prefab.name} ({rootPrefab.Source})" );
-
-                var instance = ScriptableObject.CreateInstance<BuildingPrefab>( );
-                instance.name = rootPrefab.Prefab.name;
-                instance.m_Meshes =
-                [
-                      new ObjectMeshInfo()
-                      {
-                        m_Mesh = rootPrefab.Prefab as RenderPrefabBase
-                      }
-                ];
-                instance.m_LotWidth = 10;
-                instance.m_LotDepth = 8;
-
-                AssetImportPipeline.targetDatabase.AddAsset( ( AssetDataPath ) string.Format( "{0}_{1}", instance.name, instance.GetType( ) ), instance ).Save( false );
+                var geometry = lod.geometry;
+                var surface = lod.surfaces.FirstOrDefault();
+                var assetName = Path.GetFileNameWithoutExtension( absolutePath );
+                var collectionName = Path.GetFileNameWithoutExtension( Directory.GetParent( Directory.GetParent( absolutePath ).FullName ).FullName );
                 
-                systemManaged1.AddPrefab( rootPrefab.Prefab );
-                systemManaged2.ActivatePrefabTool( rootPrefab.Prefab );
+                PrefabBuilder.BuildProp( collectionName, assetName, geometry, surface );
+
+                Interlocked.Increment( ref _completedCount );
+
+                Debug.Log( $"Asset '{collectionName}_{assetName}' has been imported." );
+                
+                if ( _expectedCount == _completedCount )
+                    Systems.CustomAssetSystem._collectionBufferQueue.Enqueue( true );
             }
         }
 
         private static bool ReportProgress( string title, string info, float progress )
         {
-            UnityEngine.Debug.Log( ( title + " " + info + " " + progress.ToString( ) ) );
+            Debug.Log( ( title + " " + info + " " + progress.ToString( ) ) );
             return false;
         }
     }
@@ -93,6 +81,7 @@ namespace CustomAssetLoader.Helpers
 
         public T CreatePrefab<T>( string sourcePath, string rootMeshName, int lodLevel ) where T : PrefabBase
         {
+            UnityEngine.Debug.LogWarning( "Shouldn't do this" );
             T instance = ScriptableObject.CreateInstance<T>( );
 
             instance.name = rootMeshName;

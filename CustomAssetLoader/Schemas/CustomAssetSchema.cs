@@ -15,30 +15,21 @@
         }
 
         /// <summary>
+        /// The name to add to localization
+        /// </summary>
+        public string DisplayName
+        {
+            get;
+            set;
+        }
+
+        /// <summary>
         /// The type of asset
         /// </summary>
         public CustomAssetType Type
         {
             get;
             set;
-        }
-
-        /// <summary>
-        /// The texture configuration for the asset
-        /// </summary>
-        public CustomTextureSchema Texture
-        {
-            get;
-            set;
-        }
-
-        /// <summary>
-        /// The mesh configuration for the asset
-        /// </summary>
-        public CustomMeshSchema Mesh
-        {
-            get;
-            set;
-        }
+        } = CustomAssetType.Prop;
     }
 }

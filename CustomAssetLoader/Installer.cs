@@ -1,4 +1,5 @@
 using BepInEx.Logging;
+using CustomAssetLoader.Schemas;
 using Game.Areas;
 using System;
 using System.Collections.Generic;
@@ -22,7 +23,7 @@ namespace CustomAssetLoader
         static string BEPINEX_PATH = Path.Combine( GAME_PATH, $"BepInEx{_S}plugins" );
 
         public static readonly string MOD_PATH = Path.Combine( Application.persistentDataPath, "Mods", "CustomAssetLoader" );
-        public static readonly string ASSETS_PATH = Path.Combine( MOD_PATH, "Assets" );
+        public static readonly string ASSETS_PATH = Path.Combine( MOD_PATH, "Source" );
 
         static string THUNDERSTORE_PATH = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.UserProfile ), $"AppData{_S}Roaming{_S}Thunderstore Mod Manager{_S}DataFolder{_S}CitiesSkylines2{_S}profiles" );
         static string RMODMAN_PATH = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.UserProfile ), $"AppData{_S}Roaming{_S}r2modmanPlus-local{_S}CitiesSkylines2{_S}profiles" );
@@ -41,7 +42,6 @@ namespace CustomAssetLoader
         /// </summary>
         private void ScanDirectory( )
         {
-
             try
             {
                 if ( Directory.Exists( BEPINEX_PATH ) )
@@ -160,14 +160,22 @@ namespace CustomAssetLoader
         /// <param name="sourceDirectory"></param>
         private void ProcessSource( string sourceDirectory )
         {
-            foreach ( var directory in Directory.GetDirectories( sourceDirectory ) )
-            {
-                ProcessDirectory( sourceDirectory, directory );
-            }
+            var assetDirectories = Directory.GetFiles( sourceDirectory, "*.json", SearchOption.AllDirectories )?
+                .Where( f => Path.GetFileName( f ).ToLowerInvariant( ) == "assets.json" )
+                .Select( Path.GetDirectoryName )
+                .Distinct();
 
-            foreach ( var zipFile in Directory.GetFiles( sourceDirectory, "*.zip", SearchOption.AllDirectories ) )
+            if ( !assetDirectories.Any( ) )
+                return;
+
+            foreach ( var assetDirectory in assetDirectories )
             {
-                ProcessZipFile( sourceDirectory, zipFile );
+                if ( !CustomAssetCollection.HasAssets( assetDirectory ) )
+                    continue;
+
+                var collection = CustomAssetCollection.Load( assetDirectory );
+
+                ProcessZipFile( collection, sourceDirectory, Path.Combine( assetDirectory, "assets.zip" ) );
             }
         }
 
@@ -191,149 +199,42 @@ namespace CustomAssetLoader
         }
 
         /// <summary>
-        /// Search directories for assets
-        /// </summary>
-        /// <param name="sourceDirectory"></param>
-        /// <param name="directory"></param>
-        private void ProcessDirectory( string sourceDirectory, string directory )
-        {
-            if ( CheckDirectoryForAssets( directory, out var folderToUse ) &&
-                FolderHasChanges( folderToUse, ASSETS_PATH ) )
-            {
-                var readableFolderString = Path.GetRelativePath( sourceDirectory, folderToUse );
-                _logger.LogInfo( $"Detected changes at '{readableFolderString}', queuing for copy..." );
-                _currentActions.Add( GenerateDirectoryCopyTask( sourceDirectory, folderToUse ) );
-            }
-        }
-
-        /// <summary>
-        /// Check a directory for the existence of an asset
-        /// </summary>
-        /// <param name="directory"></param>
-        /// <param name="outputFolder"></param>
-        /// <returns></returns>
-        private bool CheckDirectoryForAssets( string directory, out string outputFolder )
-        {
-            outputFolder = null;
-
-            // Check for assets directory
-
-            var mapsFolder = Path.Combine( directory, "Assets" );
-
-            if ( Directory.Exists( mapsFolder ) )
-            {
-                outputFolder = mapsFolder;
-                return true;
-            }
-
-            // Check for flattened map files
-            var mapIDFiles = Directory.GetFiles( directory, "*.cok.cid" );
-
-            if ( mapIDFiles.Length == 0 )
-                return false;
-
-            // Check if it has a matching map file
-            foreach ( var mapIDFile in mapIDFiles )
-            {
-                var fileName = Path.GetFileNameWithoutExtension( mapIDFile );
-                var mapFile = Path.Combine( Path.GetDirectoryName( mapIDFile ), fileName );
-
-                if ( File.Exists( mapFile ) )
-                {
-                    outputFolder = directory;
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        /// <summary>
         /// Search a ZIP file for any maps
         /// </summary>
+        /// <param name="collection"></param>
         /// <param name="sourceDirectory"></param>
         /// <param name="zipFilePath"></param>
-        private void ProcessZipFile( string sourceDirectory, string zipFilePath )
+        private void ProcessZipFile( CustomAssetCollection collection, string sourceDirectory, string zipFilePath )
         {
             var readableString = Path.GetRelativePath( sourceDirectory, zipFilePath );
 
-            if ( ZipFileHasChanges( zipFilePath, ASSETS_PATH ) )
+            if ( ZipFileHasChanges( collection, zipFilePath, Path.GetFullPath( Path.Combine( ASSETS_PATH, collection.Name, "ProjectFiles" ) ) ) )
             {
                 _logger.LogInfo( $"Detected changes in assets ZIP '{readableString}', queuing for copy..." );
-                _currentActions.Add( GenerateZipCopyTask( sourceDirectory, zipFilePath ) );
+                _currentActions.Add( GenerateZipCopyTask( collection, sourceDirectory, zipFilePath ) );
             }
-        }
-
-        /// <summary>
-        /// Copy an individual file to the target directory
-        /// </summary>
-        /// <param name="file"></param>
-        /// <param name="targetFolder"></param>
-        private void CopyFile( string file, string targetFolder )
-        {
-            try
-            {
-                var fileName = Path.GetFileName( file );
-                var targetPath = Path.Combine( targetFolder, fileName );
-                File.Copy( file, targetPath, true );
-            }
-            catch ( Exception ex )
-            {
-                HandleException( ex );
-            }
-        }
-
-        /// <summary>
-        /// Check if any file in the source folder has changed compared to the target folder.
-        /// </summary>
-        /// <param name="sourceFolder"></param>
-        /// <param name="targetFolder"></param>
-        /// <returns></returns>
-        private bool FolderHasChanges( string sourceFolder, string targetFolder )
-        {
-            var cokIDFiles = Directory.GetFiles( sourceFolder, "*.cok.cid" );
-            var cokFiles = Directory.GetFiles( sourceFolder, "*.cok" );
-
-            if ( cokIDFiles.Length == 0 || cokFiles.Length == 0 )
-                return false;
-
-            var allFiles = cokIDFiles.ToList( );
-            allFiles.AddRange( cokFiles );
-
-            foreach ( var sourceFile in allFiles )
-            {
-                var fileName = Path.GetFileName( sourceFile );
-                var targetFile = Path.Combine( targetFolder, fileName );
-
-                // If the target file doesn't exist
-                if ( !File.Exists( targetFile ) )
-                    return true;
-
-                // Check if the file has changed
-                if ( GetFileHash( sourceFile ) != GetFileHash( targetFile ) )
-                    return true;
-            }
-
-            return false; // No changes detected
         }
 
         /// <summary>
         /// Check if a ZIP file has any changes if it has map files
         /// </summary>
+        /// <param name="collection"></param>
         /// <param name="zipFilePath"></param>
         /// <param name="targetFolder"></param>
         /// <returns></returns>
-        private bool ZipFileHasChanges( string zipFilePath, string targetFolder )
+        private bool ZipFileHasChanges( CustomAssetCollection collection, string zipFilePath, string targetFolder )
         {
+            var targetLocation = $"{collection.Name}/";
+
             using ( var archive = ZipFile.OpenRead( zipFilePath ) )
             {
                 foreach ( var entry in archive.Entries )
                 {
-                    // Skip if the entry is a directory or does not contain the 'Maps' folder in its path
-                    if ( entry.FullName.EndsWith( "/" ) || !entry.FullName.ToLowerInvariant( ).Contains( "assets/" )
-                        || ( !entry.FullName.ToLowerInvariant( ).EndsWith( ".cok" ) || entry.FullName.ToLowerInvariant( ).EndsWith( ".cok.cid" ) ))
+                    if ( entry.FullName.EndsWith( "/" ) || entry.FullName.ToLowerInvariant( ).Contains( targetLocation.ToLowerInvariant() ) ||
+                        ( !entry.FullName.ToLowerInvariant( ).EndsWith( ".png" ) && !entry.FullName.ToLowerInvariant( ).EndsWith( ".fbx" ) ))
                         continue;
 
+                    _logger.LogInfo( targetFolder );
                     // Extract the relative path of the file within the 'Maps' directory in the ZIP archive
                     var targetFilePath = SanitiseZipEntryPath( Path.GetFileName( entry.FullName ), targetFolder );
 
@@ -412,59 +313,12 @@ namespace CustomAssetLoader
         }
 
         /// <summary>
-        /// Generate copy tasks for a specific map folder
-        /// </summary>
-        /// <param name="sourceFolder"></param>
-        /// <param name="copyFolder"></param>
-        /// <returns></returns>
-        private Action GenerateDirectoryCopyTask( string sourceFolder, string copyFolder )
-        {
-            return ( ) =>
-            {
-                try
-                {
-                    var readableFolderString = Path.GetRelativePath( sourceFolder, copyFolder );
-
-                    var cokIDFiles = Directory.GetFiles( copyFolder, "*.cok.cid" );
-                    var cokFiles = Directory.GetFiles( copyFolder, "*.cok" );
-
-                    if ( cokIDFiles.Length == 0 && cokFiles.Length == 0 )
-                        return;
-
-                    var files = cokIDFiles.ToList( );
-                    files.AddRange( cokFiles );
-
-                    _logger.LogInfo( $"Copying '{files.Count}' from '{readableFolderString}'." );
-
-                    var progress = 0;
-                    var complete = 0;
-
-                    foreach ( var file in files )
-                    {
-                        if ( progress % 10 == 0 )
-                            _logger.LogInfo( $"Copying file {complete + 1}/{files.Count}..." );
-
-                        CopyFile( file, ASSETS_PATH );
-                        complete++;
-                        progress = ( int ) ( ( complete / ( decimal ) files.Count ) * 100 );
-                    }
-
-                    _logger.LogInfo( $"Finished copying '{readableFolderString}'." );
-                }
-                catch ( Exception ex )
-                {
-                    HandleException( ex );
-                }
-            };
-        }
-
-        /// <summary>
         /// Generate copy tasks for maps located in ZIP files
         /// </summary>
         /// <param name="sourceDirectory"></param>
         /// <param name="zipFilePath"></param>
         /// <returns></returns>
-        private Action GenerateZipCopyTask( string sourceDirectory, string zipFilePath )
+        private Action GenerateZipCopyTask( CustomAssetCollection collection, string sourceDirectory, string zipFilePath )
         {
             return ( ) =>
             {
@@ -474,38 +328,52 @@ namespace CustomAssetLoader
 
                     _logger.LogInfo( $"Processing zip file '{readableString}'." );
 
+                    var jsonSavePath = Path.Combine( ASSETS_PATH, collection.Name );
+                    collection.Save( jsonSavePath );
+
+                    var saveRootPath = Path.GetFullPath( Path.Combine( jsonSavePath, "ProjectFiles" ) );
+
+                    Directory.CreateDirectory( saveRootPath );
+
                     using ( var archive = ZipFile.OpenRead( zipFilePath ) )
                     {
-                        // Filter out the relevant entries and count them
-                        var relevantEntries = archive.Entries
-                            .Where( entry => entry.FullName.ToLower().Contains( "assets/" ) 
-                            && ( entry.FullName.ToLowerInvariant().EndsWith( ".cok" ) || entry.FullName.ToLowerInvariant( ).EndsWith( ".cok.cid" ) ) )
-                            .ToList( );
-
-                        var totalEntries = relevantEntries.Count;
-                        if ( totalEntries == 0 )
-                            return;
-
-                        _logger.LogInfo( $"Extracting '{totalEntries}' files from '{readableString}'." );
-
-                        var complete = 0;
-
-                        foreach ( var entry in relevantEntries )
+                        foreach ( var asset in collection.Assets )
                         {
-                            var targetPath = SanitiseZipEntryPath( Path.GetFileName( entry.FullName ), ASSETS_PATH );
+                            var path = $"{asset.Name}/";
+                            var entries = archive.Entries.Where( e => !e.FullName.EndsWith( "/" ) &&
+                                e.FullName.ToLowerInvariant( ).Contains( path.ToLowerInvariant( ) ) &&
+                                ( e.FullName.ToLowerInvariant( ).EndsWith( ".png" ) || e.FullName.ToLowerInvariant( ).EndsWith( ".fbx" ) ) ).ToArray( );
 
-                            // Ensure the target directory exists
-                            Directory.CreateDirectory( Path.GetDirectoryName( targetPath ) );
+                            if ( !entries.Any( ) )
+                                continue;
 
-                            // Extract the file to the target path
-                            entry.ExtractToFile( targetPath, true ); // Overwrite if exists
+                            var savePath = Path.GetFullPath( Path.Combine( saveRootPath, asset.Name ) );
 
-                            complete++;
-                            var progress = ( int ) ( ( complete / ( decimal ) totalEntries ) * 100 );
+                            var totalEntries = entries.Length;
+                            _logger.LogInfo( $"Extracting '{totalEntries}' files from '{readableString}'." );
 
-                            if ( progress % 10 == 0 )
-                                _logger.LogInfo( $"Extracting file {complete + 1}/{totalEntries}..." );
-                        }
+                            var complete = 0;
+
+                            foreach ( var entry in entries )
+                            {
+                                var entryName = Path.GetFileName( entry.FullName );
+                                var directoryName = Path.GetDirectoryName( entry.FullName );
+
+                                var targetPath = SanitiseZipEntryPath( entryName, savePath );
+
+                                // Ensure the target directory exists
+                                Directory.CreateDirectory( Path.GetDirectoryName( targetPath ) );
+
+                                // Extract the file to the target path
+                                entry.ExtractToFile( targetPath, true ); // Overwrite if exists
+
+                                complete++;
+                                var progress = ( int ) ( ( complete / ( decimal ) totalEntries ) * 100 );
+
+                                if ( progress % 10 == 0 )
+                                    _logger.LogInfo( $"Extracting file {complete + 1}/{totalEntries}..." );
+                            }
+                        }                        
                     }
 
                     _logger.LogInfo( $"Finished processing zip file '{readableString}'." );

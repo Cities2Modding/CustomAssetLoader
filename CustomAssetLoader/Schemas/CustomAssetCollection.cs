@@ -1,4 +1,8 @@
-﻿using System.Collections.Generic;
+﻿using CustomAssetLoader.Helpers;
+using CustomAssetLoader.Systems;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+using System.IO;
 
 namespace CustomAssetLoader.Schemas
 {
@@ -23,6 +27,33 @@ namespace CustomAssetLoader.Schemas
         {
             get;
             set;
+        }
+
+        public static bool HasAssets( string assetsSourcePath )
+        {
+            var path = Path.Combine( assetsSourcePath, "assets.json" );
+            var zipPath = Path.Combine( assetsSourcePath, "assets.zip" );
+
+            return File.Exists( path ) && File.Exists( zipPath );
+        }
+
+        public static CustomAssetCollection Load( string assetsSourcePath )
+        {
+            var path = Path.Combine( assetsSourcePath, "assets.json" );
+
+            if ( !File.Exists( path ) )
+                return null;
+
+            return JsonConvert.DeserializeObject<CustomAssetCollection>( File.ReadAllText( path ) );
+        }
+
+        public void Save( string assetsSourcePath )
+        {
+            var path = Path.Combine( assetsSourcePath, "assets.json" );
+            var json = JsonConvert.SerializeObject( this );
+
+            Directory.CreateDirectory( assetsSourcePath );
+            File.WriteAllText( path, json );
         }
     }
 }

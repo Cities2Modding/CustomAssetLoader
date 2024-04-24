@@ -16,7 +16,7 @@ namespace CustomAssetLoader
         {
             var harmony = Harmony.CreateAndPatchAll( Assembly.GetExecutingAssembly( ), MyPluginInfo.PLUGIN_GUID + "_Cities2Harmony" );
 
-            // new Installer( Logger ).Run( );
+            //new Installer( Logger ).Run( );
         }
     }
 }
